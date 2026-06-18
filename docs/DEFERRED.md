@@ -1,0 +1,26 @@
+# Deferred findings / tech debt
+
+Accepted-as-is findings surfaced during subagent-driven implementation of the
+v1 plan. None are correctness bugs; each was reviewed and consciously deferred.
+Revisit before a 1.0 / mainnet-enable milestone.
+
+| ID | Module | Finding | Severity | Decision |
+|----|--------|---------|----------|----------|
+| DEF-1 | `money.py` | `from_atomic` is typed `int` but has no runtime guard, so a stray `float` would be accepted silently. Internal callers always pass `int`/atomic values. | Minor | Accept for v1; add an `isinstance` guard only if an external caller appears. |
+| DEF-2 | `registry.py` | `REGISTRY` is a plain mutable `dict`; nothing prevents runtime reassignment of entries. Could wrap in `types.MappingProxyType`. No call site mutates it. | Minor | Accept for v1; wrap if registry integrity becomes a concern. |
+
+| DEF-3 | `x402_client.py` | `select_offer` branch coverage: the "cheapest fallback when no default-network match" branch can't be exercised with v1's single enabled network; the "non-exact scheme is skipped" branch is also untested. | Minor | Add targeted tests in Task 16 (or when a 2nd network is enabled). |
+| DEF-4 | `x402_client.py` | We emit/consume the x402 **V1** envelope (`x402Version: 1`); output validates against `x402.schemas.v1.PaymentPayloadV1`. The installed x402 2.13.0 also ships a newer `PaymentPayload` (with an `accepted` field) for a later protocol version. | Minor | Accept V1 for v1. Revisit if sellers/facilitators require the newer envelope. |
+
+| DEF-5 | `x402_client.py` `select_offer` | Offers are filtered by `scheme=="exact"` + enabled registry network, but `offer.asset` is NOT checked against `network.usdc_address`. We always sign for the registry USDC contract, so a mismatched-asset offer yields a doomed (not loss-bearing) payment. Adding `offer.asset.lower() == net.usdc_address.lower()` to the filter would reject such offers cleanly. | Low (correctness, no fund-loss) | **Recommend fix** — small filter + test. Awaiting maintainer decision (don't want to unilaterally expand select_offer's scope). |
+
+| DEF-6 | `chain.py` `transfer_usdc` | No explicit `gas`/`maxFeePerGas`; `build_transaction` relies on the node's `eth_estimateGas`/fee oracle. Fine for a reachable RPC; a flaky/limited node would surface a clear error (not silent). | Low | Accept for v1; add explicit gas controls if RPC estimation proves unreliable. |
+| DEF-7 | test suite / `pyproject.toml` | web3 transitively imports `websockets.legacy`, emitting a `DeprecationWarning` during tests. Harmless (not our code; currently a warning, not an error). | Trivial | Optionally add a `filterwarnings` ignore in Task 16 to cut noise. |
+
+| DEF-8 | `transfer.py` / `audit.py` | A manual `send` records `decision="pay"`, so `spent_today()` counts it and it tightens the *automated* x402 daily cap (manual sends aren't themselves cap-gated, but they consume the shared daily budget). This is a coherent "total daily spend" model but may be surprising; an alternative is to scope the daily cap to `kind=="x402"` only. | Low (design) | Surface to maintainer: confirm whether the daily cap is "total wallet spend/day" (current) or "automated-agent budget/day". |
+
+| DEF-9 | `cli.py` | `Decimal(amount)` in `send`/`config set` and `enabled_networks()[0]` in `send` are unguarded: a non-numeric amount raises `decimal.InvalidOperation` as a raw traceback, and an all-disabled registry would `IndexError`. Both fail safely (no transfer happens), but the UX is an ugly traceback. | Low (UX, fail-safe) | v1.1 polish: wrap in try/except → clean `typer.Exit(1)` messages. |
+
+## Plan corrections applied during implementation
+
+- **Canonical test vector (Tasks 8, 10):** the plan paired `KEY = 0x59c6995e…78690d` with `ADDR = 0x7E5F4552…395Bdf`, but those don't correspond. Verified: `0x59c6995e…` → `0x70997970C51812dc3A010C7d01b50e0d17dc79C8` (Hardhat acct #1); `0x7E5F4552…` is the address of key `0x…0001`. Tests use the corrected pair `KEY=0x59c6995e…` / `ADDR=0x70997970C51812dc3A010C7d01b50e0d17dc79C8`. Apply the same correction anywhere the plan reuses this pair.
