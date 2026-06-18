@@ -1,10 +1,17 @@
 """Tests for the gasless x402 pay() flow."""
 
+from __future__ import annotations
+
 import base64
 import json
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
 
 from y402.config import default_config
 from y402.errors import PolicyRefusedError
@@ -24,8 +31,8 @@ ACCEPT = {
 }
 
 
-def _handler(seen):
-    def handle(request):
+def _handler(seen: dict[str, str]) -> Callable[[httpx.Request], httpx.Response]:
+    def handle(request: httpx.Request) -> httpx.Response:
         if "X-PAYMENT" not in request.headers:
             return httpx.Response(402, json={"x402Version": 1, "accepts": [ACCEPT]})
         seen["header"] = request.headers["X-PAYMENT"]
@@ -34,9 +41,11 @@ def _handler(seen):
     return handle
 
 
-def test_pay_auto_pays_small_amount_and_attaches_header(monkeypatch, tmp_path):
+def test_pay_auto_pays_small_amount_and_attaches_header(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    seen = {}
+    seen: dict[str, str] = {}
     client = httpx.Client(transport=httpx.MockTransport(_handler(seen)))
     cfg = default_config()  # 0.005 USDC == 5000 atomic, below 0.01 threshold -> PAY
     resp = pay(
@@ -51,11 +60,11 @@ def test_pay_auto_pays_small_amount_and_attaches_header(monkeypatch, tmp_path):
     assert decoded["payload"]["authorization"]["value"] == "5000"
 
 
-def test_pay_refuses_over_cap(monkeypatch, tmp_path):
+def test_pay_refuses_over_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     big = dict(ACCEPT, maxAmountRequired="500000")  # 0.50 > 0.10 cap
 
-    def handle(request):
+    def handle(request: httpx.Request) -> httpx.Response:
         return httpx.Response(402, json={"x402Version": 1, "accepts": [big]})
 
     client = httpx.Client(transport=httpx.MockTransport(handle))

@@ -28,6 +28,7 @@ def _offer() -> Offer:
 
 def test_build_payment_signature_recovers_to_wallet() -> None:
     net = get_network("base-sepolia")
+    assert net is not None
     payload = build_payment(_offer(), net, Wallet.from_key(KEY), now_ts=1_000_000)
     auth = payload["payload"]["authorization"]
     assert auth["from"] == ADDR

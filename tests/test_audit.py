@@ -1,9 +1,17 @@
+from __future__ import annotations
+
 from decimal import Decimal
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 from y402.audit import AuditRecord, append, read_all, spent_today
 
 
-def _rec(amount: str, decision: str = "pay", ts: str = "2026-06-18T10:00:00+00:00"):
+def _rec(amount: str, decision: str = "pay", ts: str = "2026-06-18T10:00:00+00:00") -> AuditRecord:
     return AuditRecord(
         ts=ts,
         kind="x402",
@@ -16,7 +24,7 @@ def _rec(amount: str, decision: str = "pay", ts: str = "2026-06-18T10:00:00+00:0
     )
 
 
-def test_append_then_read(tmp_path, monkeypatch):
+def test_append_then_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     append(_rec("0.05"))
     records = read_all()
@@ -24,7 +32,7 @@ def test_append_then_read(tmp_path, monkeypatch):
     assert records[0].amount_usd == "0.05"
 
 
-def test_spent_today_sums_only_paid_today(tmp_path, monkeypatch):
+def test_spent_today_sums_only_paid_today(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     append(_rec("0.05", decision="pay", ts="2026-06-18T09:00:00+00:00"))
     append(_rec("0.03", decision="pay", ts="2026-06-18T11:00:00+00:00"))

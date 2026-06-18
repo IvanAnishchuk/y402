@@ -1,9 +1,11 @@
+from typing import Any
+
 import pytest
 
 from y402.errors import NoUsableOfferError
 from y402.x402_client import parse_offers, select_offer
 
-BODY = {
+BODY: dict[str, Any] = {
     "x402Version": 1,
     "error": "payment required",
     "accepts": [
@@ -30,20 +32,20 @@ BODY = {
 }
 
 
-def test_parse_offers_reads_fields():
+def test_parse_offers_reads_fields() -> None:
     offers = parse_offers(BODY)
     assert offers[0].network == "base-sepolia"
     assert offers[0].max_amount_atomic == 50000
     assert offers[0].domain_name == "USDC"
 
 
-def test_select_offer_picks_enabled_registry_network():
+def test_select_offer_picks_enabled_registry_network() -> None:
     offer, network = select_offer(parse_offers(BODY), default_network="eip155:84532")
     assert network.id == "eip155:84532"
     assert offer.network == "base-sepolia"
 
 
-def test_select_offer_raises_when_none_usable():
-    only_solana = {"accepts": [BODY["accepts"][1]]}
+def test_select_offer_raises_when_none_usable() -> None:
+    only_solana: dict[str, Any] = {"accepts": [BODY["accepts"][1]]}
     with pytest.raises(NoUsableOfferError):
         select_offer(parse_offers(only_solana), default_network="eip155:84532")

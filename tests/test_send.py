@@ -1,5 +1,13 @@
+from __future__ import annotations
+
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 from y402.audit import read_all
 from y402.registry import get_network
@@ -9,11 +17,13 @@ from y402.wallet import Wallet
 KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 
 
-def test_send_usdc_broadcasts_and_audits(tmp_path, monkeypatch):
+def test_send_usdc_broadcasts_and_audits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     chain = MagicMock()
     chain.transfer_usdc.return_value = "0xdeadbeef"
-    chain.network = get_network("eip155:84532")
+    net = get_network("eip155:84532")
+    assert net is not None
+    chain.network = net
     tx = send_usdc(
         chain,
         Wallet.from_key(KEY),
