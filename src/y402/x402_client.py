@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import json
+import secrets
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +13,7 @@ from y402.registry import get_network
 
 if TYPE_CHECKING:
     from y402.registry import Network
+    from y402.wallet import Wallet
 
 _ERR_NO_USABLE_OFFER = "no exact-scheme offer on an enabled network"
 
@@ -64,3 +68,64 @@ def select_offer(offers: list[Offer], default_network: str) -> tuple[Offer, Netw
         if net.id == default_network:
             return o, net
     return min(usable, key=lambda pair: pair[0].max_amount_atomic)
+
+
+X402_VERSION = 1
+
+_TRANSFER_TYPES: dict[str, list[dict[str, str]]] = {
+    "TransferWithAuthorization": [
+        {"name": "from", "type": "address"},
+        {"name": "to", "type": "address"},
+        {"name": "value", "type": "uint256"},
+        {"name": "validAfter", "type": "uint256"},
+        {"name": "validBefore", "type": "uint256"},
+        {"name": "nonce", "type": "bytes32"},
+    ]
+}
+
+
+def build_payment(
+    offer: Offer,
+    network: Network,
+    wallet: Wallet,
+    now_ts: int,
+) -> dict[str, Any]:
+    """Sign an EIP-3009 transferWithAuthorization and wrap it as an x402 payload."""
+    nonce = secrets.token_bytes(32)
+    valid_before = now_ts + offer.max_timeout
+    domain: dict[str, Any] = {
+        "name": offer.domain_name or network.usdc_domain_name,
+        "version": offer.domain_version or network.usdc_domain_version,
+        "chainId": network.chain_id,
+        "verifyingContract": network.usdc_address,
+    }
+    message: dict[str, Any] = {
+        "from": wallet.address,
+        "to": offer.pay_to,
+        "value": offer.max_amount_atomic,
+        "validAfter": 0,
+        "validBefore": valid_before,
+        "nonce": nonce,
+    }
+    signature = wallet.sign_typed_data(domain, _TRANSFER_TYPES, message)
+    return {
+        "x402Version": X402_VERSION,
+        "scheme": offer.scheme,
+        "network": offer.network,
+        "payload": {
+            "signature": signature,
+            "authorization": {
+                "from": wallet.address,
+                "to": offer.pay_to,
+                "value": str(offer.max_amount_atomic),
+                "validAfter": "0",
+                "validBefore": str(valid_before),
+                "nonce": "0x" + nonce.hex(),
+            },
+        },
+    }
+
+
+def encode_x_payment(payload: dict[str, Any]) -> str:
+    """Base64-encode a JSON-serialised x402 payment payload for the X-PAYMENT header."""
+    return base64.b64encode(json.dumps(payload).encode()).decode()
