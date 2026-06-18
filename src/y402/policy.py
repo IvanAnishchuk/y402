@@ -19,6 +19,8 @@ class Decision(StrEnum):
 
 def evaluate(amount_usd: Decimal, policy: Policy, spent_today: Decimal) -> Decision:
     """Tiered policy. Caps hard-refuse; unattended turns the confirm band into PAY."""
+    if amount_usd <= 0:
+        return Decision.REFUSE
     if amount_usd > policy.per_payment_cap:
         return Decision.REFUSE
     if spent_today + amount_usd > policy.daily_cap:

@@ -49,3 +49,19 @@ def test_select_offer_raises_when_none_usable() -> None:
     only_solana: dict[str, Any] = {"accepts": [BODY["accepts"][1]]}
     with pytest.raises(NoUsableOfferError):
         select_offer(parse_offers(only_solana), default_network="eip155:84532")
+
+
+def test_select_offer_rejects_asset_that_is_not_registry_usdc() -> None:
+    wrong_asset: dict[str, Any] = {
+        "accepts": [{**BODY["accepts"][0], "asset": "0x000000000000000000000000000000000000dEaD"}],
+    }
+    with pytest.raises(NoUsableOfferError):
+        select_offer(parse_offers(wrong_asset), default_network="eip155:84532")
+
+
+def test_select_offer_rejects_non_positive_amount() -> None:
+    negative: dict[str, Any] = {
+        "accepts": [{**BODY["accepts"][0], "maxAmountRequired": "-5000"}],
+    }
+    with pytest.raises(NoUsableOfferError):
+        select_offer(parse_offers(negative), default_network="eip155:84532")

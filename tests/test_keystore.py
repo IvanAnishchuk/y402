@@ -36,6 +36,20 @@ def test_file_backend_keystore_is_owner_only(
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permissions")
+def test_file_backend_resave_keeps_owner_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("Y402_PASSPHRASE", "pw")
+    ks = keystore.FileKeystore()
+    ks.save_key(KEY)
+    ks.save_key(KEY)  # atomic overwrite must keep 0o600 and a loadable keystore
+    path = tmp_path / "y402" / "keystore.json"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert ks.load_key().lower() == KEY.lower()
+
+
 def test_file_backend_wrong_passphrase_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

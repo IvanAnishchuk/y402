@@ -36,3 +36,10 @@ def test_refuse_when_daily_cap_would_be_exceeded() -> None:
         evaluate(Decimal("0.05"), _p(unattended=True), spent_today=Decimal("0.98"))
         is Decision.REFUSE
     )
+
+
+def test_refuse_non_positive_amount() -> None:
+    assert evaluate(Decimal("0"), _p(), spent_today=Decimal("0")) is Decision.REFUSE
+    assert (
+        evaluate(Decimal("-0.01"), _p(unattended=True), spent_today=Decimal("0")) is Decision.REFUSE
+    )

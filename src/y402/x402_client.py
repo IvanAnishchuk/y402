@@ -70,9 +70,17 @@ def select_offer(offers: list[Offer], default_network: str) -> tuple[Offer, Netw
     for o in offers:
         if o.scheme != "exact":
             continue
+        # Reject malformed/hostile seller inputs before we ever sign:
+        # a non-positive amount would erode the daily-cap accounting and crash
+        # signing; an asset other than the registry USDC we sign for is unpayable.
+        if o.max_amount_atomic <= 0:
+            continue
         net = get_network(o.network)
-        if net is not None and net.enabled:
-            usable.append((o, net))
+        if net is None or not net.enabled:
+            continue
+        if o.asset.lower() != net.usdc_address.lower():
+            continue
+        usable.append((o, net))
     if not usable:
         raise NoUsableOfferError(_ERR_NO_USABLE_OFFER)
     for o, net in usable:
@@ -105,8 +113,11 @@ def build_payment(
     nonce = secrets.token_bytes(32)
     valid_before = now_ts + offer.max_timeout
     domain: dict[str, Any] = {
-        "name": offer.domain_name or network.usdc_domain_name,
-        "version": offer.domain_version or network.usdc_domain_version,
+        # Pin the EIP-712 domain to the registry, not seller-supplied fields.
+        # select_offer guarantees offer.asset == network.usdc_address, so the
+        # registry's canonical name/version are authoritative for this contract.
+        "name": network.usdc_domain_name,
+        "version": network.usdc_domain_version,
         "chainId": network.chain_id,
         "verifyingContract": network.usdc_address,
     }

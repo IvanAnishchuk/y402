@@ -12,7 +12,7 @@ Revisit before a 1.0 / mainnet-enable milestone.
 | DEF-3 | `x402_client.py` | `select_offer` branch coverage: the "cheapest fallback when no default-network match" branch can't be exercised with v1's single enabled network; the "non-exact scheme is skipped" branch is also untested. | Minor | Add targeted tests in Task 16 (or when a 2nd network is enabled). |
 | DEF-4 | `x402_client.py` | We emit/consume the x402 **V1** envelope (`x402Version: 1`); output validates against `x402.schemas.v1.PaymentPayloadV1`. The installed x402 2.13.0 also ships a newer `PaymentPayload` (with an `accepted` field) for a later protocol version. | Minor | Accept V1 for v1. Revisit if sellers/facilitators require the newer envelope. |
 
-| DEF-5 | `x402_client.py` `select_offer` | Offers are filtered by `scheme=="exact"` + enabled registry network, but `offer.asset` is NOT checked against `network.usdc_address`. We always sign for the registry USDC contract, so a mismatched-asset offer yields a doomed (not loss-bearing) payment. Adding `offer.asset.lower() == net.usdc_address.lower()` to the filter would reject such offers cleanly. | Low (correctness, no fund-loss) | **Recommend fix** — small filter + test. Awaiting maintainer decision (don't want to unilaterally expand select_offer's scope). |
+| DEF-5 | `x402_client.py` `select_offer` | Offers were filtered by `scheme=="exact"` + enabled registry network, but `offer.asset` was NOT checked against `network.usdc_address`. | Low (correctness, no fund-loss) | ✅ **FIXED** — `select_offer` now skips offers whose `asset` ≠ the registry USDC address. |
 
 | DEF-6 | `chain.py` `transfer_usdc` | No explicit `gas`/`maxFeePerGas`; `build_transaction` relies on the node's `eth_estimateGas`/fee oracle. Fine for a reachable RPC; a flaky/limited node would surface a clear error (not silent). | Low | Accept for v1; add explicit gas controls if RPC estimation proves unreliable. |
 | DEF-7 | test suite / `pyproject.toml` | web3 transitively imports `websockets.legacy`, emitting a `DeprecationWarning` during tests. Harmless (not our code; currently a warning, not an error). | Trivial | Optionally add a `filterwarnings` ignore in Task 16 to cut noise. |
@@ -20,6 +20,17 @@ Revisit before a 1.0 / mainnet-enable milestone.
 | DEF-8 | `transfer.py` / `audit.py` | A manual `send` records `decision="pay"`, so `spent_today()` counts it and it tightens the *automated* x402 daily cap (manual sends aren't themselves cap-gated, but they consume the shared daily budget). This is a coherent "total daily spend" model but may be surprising; an alternative is to scope the daily cap to `kind=="x402"` only. | Low (design) | Surface to maintainer: confirm whether the daily cap is "total wallet spend/day" (current) or "automated-agent budget/day". |
 
 | DEF-9 | `cli.py` | `Decimal(amount)` in `send`/`config set` and `enabled_networks()[0]` in `send` are unguarded: a non-numeric amount raises `decimal.InvalidOperation` as a raw traceback, and an all-disabled registry would `IndexError`. Both fail safely (no transfer happens), but the UX is an ugly traceback. | Low (UX, fail-safe) | v1.1 polish: wrap in try/except → clean `typer.Exit(1)` messages. |
+
+## Findings from the final whole-implementation review
+
+| ID | Module | Finding | Severity | Decision |
+|----|--------|---------|----------|----------|
+| DEF-10 | `x402_client.py` `parse_offers`/`policy.evaluate` | Seller-controlled `maxAmountRequired` was `int()`-parsed with no lower bound: a **negative** amount → PAY, an audited negative `"pay"` **reduced** `spent_today` (daily-cap erosion), then `sign_typed_data` crashed with `ValueOutOfBounds`. | **Important (security)** | ✅ **FIXED** — `select_offer` skips `max_amount_atomic <= 0`; `policy.evaluate` refuses `amount <= 0` (defense-in-depth). |
+| DEF-11 | `keystore.py` `save_key` | `write_text(...)` then `chmod(0o600)` left a brief world-readable (`0o644`) window; the write was also non-atomic (torn keystore possible on crash). | Important | ✅ **FIXED** — atomic `mkstemp` (0o600 from creation) + `Path.replace`; no window, no torn file. |
+| DEF-12 | `audit.py` `read_all` | A single corrupt/torn JSONL line makes `read_all` raise, which breaks `spent_today` (the cap check) and `y402 log`. | Minor | Skip/log unparseable lines instead of aborting; pairs with atomic append. |
+| DEF-13 | `audit.py` / `transfer.py` | `AuditRecord.host` means a hostname for x402 but a recipient **address** for `send`. Cosmetic, but conflates the field for any analysis. | Trivial | Document the overload or add a distinct field. |
+| DEF-14 | `chain.py` / spec | `transfer_usdc` returns right after `send_raw_transaction`; the send is audited before any receipt, so a later-reverting tx is still logged `"pay"`. Spec's send flow said "await receipt". | Low | Accept for v1 (hash is real); revisit with receipt-await if needed. |
+| DEF-3-domain | `x402_client.py` `build_payment` | EIP-712 domain `name`/`version` fell back to seller-supplied `offer.domain_name/version`. | Minor | ✅ **FIXED** — domain `name`/`version` now pinned to the registry (`select_offer` guarantees the asset matches). |
 
 ## Plan corrections applied during implementation
 

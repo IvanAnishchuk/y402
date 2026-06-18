@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TYPE_CHECKING, Protocol
+import tempfile
+from pathlib import Path
+from typing import Protocol
 
 import keyring
 from eth_account import Account
@@ -13,9 +15,6 @@ from keyring.backends.fail import Keyring as FailKeyring
 
 from y402.config import config_dir
 from y402.errors import KeystoreError
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 _SERVICE = "y402"
 _ACCOUNT = "wallet"
@@ -53,10 +52,18 @@ class FileKeystore:
         encrypted = Account.encrypt(HexStr(private_key), _passphrase())
         path = self._path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(encrypted), encoding="utf-8")
-        # Even though the contents are scrypt-encrypted, the keystore (and the
-        # plaintext wallet address it embeds) should not be world-readable.
-        path.chmod(0o600)
+        # Atomic, owner-only write: mkstemp creates the temp file 0o600, and
+        # replace() swaps it in atomically -- no world-readable window and no
+        # torn keystore if the process dies mid-write. (Contents are also
+        # scrypt-encrypted, but the file embeds the plaintext wallet address.)
+        fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".keystore-", suffix=".tmp")
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(encrypted))
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def load_key(self) -> str:
         try:
