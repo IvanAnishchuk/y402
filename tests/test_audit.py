@@ -52,3 +52,14 @@ def test_read_all_skips_corrupt_line(tmp_path: Path, monkeypatch: pytest.MonkeyP
     records = read_all()  # must not raise
     assert len(records) == 2
     assert spent_today(today="2026-06-18") == Decimal("0.08")
+
+
+def test_spent_today_skips_bad_amount(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    append(_rec("0.05", ts="2026-06-18T09:00:00+00:00"))
+    # Structurally-valid records whose amount_usd is non-numeric / non-finite must
+    # not crash the cap check (log-poisoning DoS) — they are skipped.
+    append(_rec("abc", ts="2026-06-18T10:00:00+00:00"))
+    append(_rec("NaN", ts="2026-06-18T11:00:00+00:00"))
+    append(_rec("0.03", ts="2026-06-18T12:00:00+00:00"))
+    assert spent_today(today="2026-06-18") == Decimal("0.08")

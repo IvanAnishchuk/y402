@@ -14,7 +14,7 @@ BODY: dict[str, Any] = {
             "network": "base-sepolia",
             "maxAmountRequired": "50000",
             "asset": "0x036CbD53842c5426634e7929541eC2318f3dcf7e",
-            "payTo": "0xabc",
+            "payTo": "0x0000000000000000000000000000000000000abc",
             "resource": "https://api.example.com/data",
             "maxTimeoutSeconds": 60,
             "extra": {"name": "USDC", "version": "2"},
@@ -73,3 +73,11 @@ def test_select_offer_rejects_implausible_timeout() -> None:
     }
     with pytest.raises(NoUsableOfferError):
         select_offer(parse_offers(huge), default_network="eip155:84532")
+
+
+def test_select_offer_rejects_malformed_pay_to() -> None:
+    bad: dict[str, Any] = {
+        "accepts": [{**BODY["accepts"][0], "payTo": "not-an-address"}],
+    }
+    with pytest.raises(NoUsableOfferError):
+        select_offer(parse_offers(bad), default_network="eip155:84532")

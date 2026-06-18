@@ -55,6 +55,26 @@ Deferred:
 payments; a manual `send` is an explicit, confirmed user action) — by design,
 not a defect. `transfer_usdc` not awaiting a receipt before auditing is DEF-14.
 
+## Findings from `/code-review high` (round 2, post-Sprint-1)
+
+Fixed in this pass (with tests): ✅ `pay()` audits the charge **before** the retry
+GET so a network drop after the X-PAYMENT header is sent still debits the cap
+(fail-safe); ✅ `spent_today` skips records with a non-numeric/non-finite
+`amount_usd` or non-string `ts` (log-poisoning DoS — completes the H1 read_all
+work); ✅ malformed-402 catch also handles a non-dict JSON body (`AttributeError`);
+✅ `send` refuses a disabled network (`get_network` resolves disabled entries that
+`enabled_networks` filtered); ✅ `select_offer` rejects a malformed `payTo` before
+signing; ✅ `_usd` rejects `NaN`/`Inf` and `config set per_payment_cap` rejects ≤0.
+
+Deferred:
+
+| ID | Module | Finding | Severity | Decision |
+|----|--------|---------|----------|----------|
+| DEF-20 | `cli`/`config`/`money` | `_usd` parsing duplicates `config.load_config`'s `Decimal(str(...))`; a hand-edited bad TOML value still raises a raw `InvalidOperation` from `load_config`. | Low | Extract a shared `money.parse_usd` and have `load_config` use it (clean error on bad config). |
+| DEF-21 | `chain`/`transfer` | Recipient/`payTo` address validation lives in `cli`/`select_offer`; a non-CLI caller of `send_usdc`/`transfer_usdc` gets a raw web3 error. | Low (altitude) | Move the address guard into the chain/transfer layer (or an `Address` value type) so the API is safe too. |
+| DEF-22 | `cli`/`x402_client`/`chain` | Cleanup: a `ChainClient` factory for the `rpc_overrides` lookup (duplicated in `balance`/`send`); dedup the unknown-network blocks and the two `pay()` refuse blocks; make `ChainClient(w3=, rpc_url=)` mutually exclusive. | Trivial | Bundle with DEF-19. |
+| DEF-23 | `x402_client` `select_offer` | A dropped offer always yields the generic `NoUsableOfferError`; the reason (timeout/asset/payTo/amount) isn't surfaced. The `_MAX_TIMEOUT_SECONDS=3600` cap could also false-reject a legit long-settlement seller. | Low | Add per-skip `logger.debug`; revisit the cap if a real seller needs >1h. |
+
 ## Plan corrections applied during implementation
 
 - **Canonical test vector (Tasks 8, 10):** the plan paired `KEY = 0x59c6995e…78690d` with `ADDR = 0x7E5F4552…395Bdf`, but those don't correspond. Verified: `0x59c6995e…` → `0x70997970C51812dc3A010C7d01b50e0d17dc79C8` (Hardhat acct #1); `0x7E5F4552…` is the address of key `0x…0001`. Tests use the corrected pair `KEY=0x59c6995e…` / `ADDR=0x70997970C51812dc3A010C7d01b50e0d17dc79C8`. Apply the same correction anywhere the plan reuses this pair.

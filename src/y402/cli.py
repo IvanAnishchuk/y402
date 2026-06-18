@@ -128,12 +128,19 @@ def pay(
 
 
 def _usd(value: str) -> Decimal:
-    """Parse a USD amount, exiting cleanly (not with a traceback) on bad input."""
+    """Parse a USD amount, exiting cleanly (not with a traceback) on bad input.
+
+    Rejects non-finite values too: ``Decimal("NaN")``/``Decimal("Inf")`` parse
+    without error but would poison comparisons in the policy engine.
+    """
     try:
-        return Decimal(value)
+        parsed = Decimal(value)
     except InvalidOperation:
+        parsed = None
+    if parsed is None or not parsed.is_finite():
         console.print(f"[red]Invalid amount: {value}[/red]")
-        raise typer.Exit(1) from None
+        raise typer.Exit(1)
+    return parsed
 
 
 @app.command()
@@ -160,6 +167,11 @@ def send(
     net = get_network(key)
     if net is None:
         console.print(f"[red]Unknown network: {key}[/red]")
+        raise typer.Exit(1)
+    if not net.enabled:
+        # Don't broadcast on a network the registry marks unsupported in this
+        # build (get_network resolves disabled entries; enabled_networks did not).
+        console.print(f"[red]Network not enabled: {net.id}[/red]")
         raise typer.Exit(1)
     # Validate recipient + amount up front so a typo is a clean error, not a
     # mid-send traceback (and never after we've already prompted/loaded the key).
@@ -202,7 +214,11 @@ def config_set(
     elif key == "unattended":
         cfg.policy.unattended = value.lower() in ("1", "true", "yes", "on")
     elif key == "per_payment_cap":
-        cfg.policy.per_payment_cap = _usd(value)
+        cap = _usd(value)
+        if cap <= 0:
+            console.print("[red]per_payment_cap must be positive[/red]")
+            raise typer.Exit(1)
+        cfg.policy.per_payment_cap = cap
     else:
         console.print(f"[red]Unknown config key: {key}[/red]")
         raise typer.Exit(1)

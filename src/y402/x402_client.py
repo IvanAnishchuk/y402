@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from eth_utils.address import is_address
 
 from y402 import audit
 from y402.errors import NoUsableOfferError, PolicyRefusedError
@@ -87,6 +88,9 @@ def select_offer(offers: list[Offer], default_network: str) -> tuple[Offer, Netw
         if net is None or not net.enabled:
             continue
         if o.asset.lower() != net.usdc_address.lower():
+            continue
+        if not is_address(o.pay_to):
+            # A malformed payTo would crash EIP-712 signing; reject the offer.
             continue
         usable.append((o, net))
     if not usable:
@@ -182,9 +186,10 @@ def pay(
 
         try:
             offers = parse_offers(resp.json())
-        except (ValueError, KeyError, TypeError) as exc:
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
             # ValueError covers json.JSONDecodeError + int() of a bad amount;
-            # KeyError a missing field; TypeError int(None) on a null field.
+            # KeyError a missing field; TypeError int(None); AttributeError a
+            # non-dict JSON body (e.g. a bare list/string) hitting body.get(...).
             raise NoUsableOfferError(_ERR_MALFORMED_402) from exc
         offer, network = select_offer(offers, config.default_network)
         amount = from_atomic(offer.max_amount_atomic)
@@ -205,14 +210,15 @@ def pay(
             msg = "declined at confirmation"
             raise PolicyRefusedError(msg)
 
-        payload = build_payment(offer, network, wallet, now_ts)
-        paid = client.get(url, headers={"X-PAYMENT": encode_x_payment(payload)})
-        # Charge against the daily cap on send, NOT on a 2xx response: the signed
-        # EIP-3009 authorization is valid until validBefore and a seller can settle
-        # it later even after returning an error here. Gating on paid.is_success
-        # would be fail-open (a reject-then-settle seller could bypass the cap).
+        header = encode_x_payment(build_payment(offer, network, wallet, now_ts))
+        # Charge against the daily cap on SEND, *before* the request returns: the
+        # signed EIP-3009 authorization is valid until validBefore and a seller
+        # can settle it even if this request errors out mid-flight. Auditing
+        # first is fail-safe — a reject-then-settle seller OR a network drop after
+        # the header is transmitted cannot bypass the cap. Gating on a 2xx
+        # response would be fail-open.
         _audit(amount, host, network.id, offer.resource, "pay", None)
-        return paid
+        return client.get(url, headers={"X-PAYMENT": header})
     finally:
         if owns_client:
             client.close()

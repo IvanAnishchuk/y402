@@ -66,6 +66,16 @@ def spent_today(today: str) -> Decimal:
     """
     total = Decimal("0")
     for r in read_all():
-        if r.decision == "pay" and r.ts.startswith(today):
-            total += Decimal(r.amount_usd)
+        if r.decision != "pay" or not str(r.ts).startswith(today):
+            continue
+        try:
+            amount = Decimal(r.amount_usd)
+        except ArithmeticError, ValueError, TypeError:
+            amount = None
+        if amount is None or not amount.is_finite():
+            # A structurally-valid record with a non-numeric/NaN amount must not
+            # crash the cap check (log-poisoning DoS); skip it loudly.
+            logger.warning("skipping audit record with bad amount_usd: %r", r.amount_usd)
+            continue
+        total += amount
     return total

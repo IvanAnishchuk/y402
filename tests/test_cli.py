@@ -69,3 +69,25 @@ def test_config_set_invalid_cap_errors(tmp_path: Path, monkeypatch: pytest.Monke
     result = runner.invoke(app, ["config", "set", "per_payment_cap", "abc"])
     assert result.exit_code == 1
     assert "Invalid amount" in result.stdout
+
+
+def test_config_set_nonfinite_cap_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    result = runner.invoke(app, ["config", "set", "per_payment_cap", "NaN"])
+    assert result.exit_code == 1
+    assert "Invalid amount" in result.stdout
+
+
+def test_config_set_nonpositive_cap_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    result = runner.invoke(app, ["config", "set", "per_payment_cap", "0"])
+    assert result.exit_code == 1
+    assert "must be positive" in result.stdout
+
+
+def test_send_disabled_network_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    # eip155:8453 (Base mainnet) is in the registry but enabled=False in v1.
+    result = runner.invoke(app, ["send", _VALID_ADDR, "0.10", "--network", "eip155:8453", "--yes"])
+    assert result.exit_code == 1
+    assert "not enabled" in result.stdout

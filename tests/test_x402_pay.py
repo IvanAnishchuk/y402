@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+from y402.audit import read_all
 from y402.config import default_config
 from y402.errors import NoUsableOfferError, PolicyRefusedError
 from y402.wallet import Wallet
@@ -97,3 +98,48 @@ def test_pay_rejects_malformed_402(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
             http=client,
             now_ts=1_000_000,
         )
+
+
+def test_pay_rejects_non_dict_402_body(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        # A 402 whose JSON body is a bare list (not a dict) must surface a clean
+        # NoUsableOfferError, not a raw AttributeError from body.get(...).
+        return httpx.Response(402, json=["nope"])
+
+    client = httpx.Client(transport=httpx.MockTransport(handle))
+    with pytest.raises(NoUsableOfferError):
+        pay(
+            "https://api.example.com/data",
+            config=default_config(),
+            wallet=Wallet.from_key(KEY),
+            http=client,
+            now_ts=1_000_000,
+        )
+
+
+def test_pay_charges_cap_even_if_retry_request_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if "X-PAYMENT" not in request.headers:
+            return httpx.Response(402, json={"x402Version": 1, "accepts": [ACCEPT]})
+        # The signed auth has been transmitted; the network drops before a reply.
+        raise httpx.ConnectError("boom")
+
+    client = httpx.Client(transport=httpx.MockTransport(handle))
+    with pytest.raises(httpx.ConnectError):
+        pay(
+            "https://api.example.com/data",
+            config=default_config(),
+            wallet=Wallet.from_key(KEY),
+            http=client,
+            now_ts=1_000_000,
+        )
+    # Fail-safe: the cap was charged on send even though the request raised.
+    records = read_all()
+    assert len(records) == 1
+    assert records[0].decision == "pay"
