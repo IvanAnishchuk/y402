@@ -35,3 +35,16 @@ uv run pre-commit run --all-files
 # Supply-chain audit (pip-audit + SBOM)
 uv run python scripts/audit.py
 ```
+
+## Architecture
+
+Deterministic core: `money` (Decimal↔atomic), `registry` (EVM networks), `config`,
+`audit` (JSONL), `policy` (tiered caps). Custody: `keystore` (OS keyring + encrypted-file
+fallback) + `wallet` (eth-account; the trust root — the private key never leaves it). I/O:
+`chain` (web3.py balances + broadcast), `x402_client` (gasless pay: parse 402 → select
+offer → EIP-3009 sign → `X-PAYMENT`), `transfer` (self-settled send). `cli` (Typer) and
+`skill/` are thin shims.
+
+The gasless x402 pay path signs locally and uses **no RPC**; `balance`/`send` use web3.py.
+Money is always `decimal.Decimal` — never `float`. See `docs/superpowers/specs/` for the
+design and `docs/DEFERRED.md` for accepted-as-is findings.
