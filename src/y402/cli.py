@@ -132,7 +132,8 @@ def send(
     network: Annotated[
         str | None,
         typer.Option(
-            "--network", help="Network ID (CAIP-2 or x402 name). Defaults to first enabled."
+            "--network",
+            help="Network ID (CAIP-2 or x402 name). Defaults to the configured default_network.",
         ),
     ] = None,
     yes: Annotated[
@@ -141,13 +142,13 @@ def send(
     ] = False,
 ) -> None:
     """Send USDC to an address."""
-    if network is not None:
-        net = get_network(network)
-        if net is None:
-            console.print(f"[red]Unknown network: {network}[/red]")
-            raise typer.Exit(1)
-    else:
-        net = enabled_networks()[0]
+    # Default to the configured network (consistent with `pay`), not whichever
+    # registry entry happens to be first-enabled.
+    key = network or load_config().default_network
+    net = get_network(key)
+    if net is None:
+        console.print(f"[red]Unknown network: {key}[/red]")
+        raise typer.Exit(1)
     if not yes and not typer.confirm(f"Send {amount} USDC to {to} on {net.id}?"):
         raise typer.Abort()
     tx = send_usdc(ChainClient(net), Wallet.load(), to=to, amount=Decimal(amount))

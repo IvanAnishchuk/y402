@@ -38,3 +38,10 @@ def test_config_get_shows_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     result = runner.invoke(app, ["config", "get"])
     assert result.exit_code == 0
     assert "eip155:84532" in result.stdout
+
+
+def test_send_unknown_network_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    result = runner.invoke(app, ["send", "0xabc", "0.1", "--network", "bogus", "--yes"])
+    assert result.exit_code == 1
+    assert "Unknown network" in result.stdout

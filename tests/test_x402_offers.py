@@ -65,3 +65,11 @@ def test_select_offer_rejects_non_positive_amount() -> None:
     }
     with pytest.raises(NoUsableOfferError):
         select_offer(parse_offers(negative), default_network="eip155:84532")
+
+
+def test_select_offer_rejects_implausible_timeout() -> None:
+    huge: dict[str, Any] = {
+        "accepts": [{**BODY["accepts"][0], "maxTimeoutSeconds": 10**9}],
+    }
+    with pytest.raises(NoUsableOfferError):
+        select_offer(parse_offers(huge), default_network="eip155:84532")

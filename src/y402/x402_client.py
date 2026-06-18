@@ -26,7 +26,13 @@ if TYPE_CHECKING:
     from y402.wallet import Wallet
 
 _ERR_NO_USABLE_OFFER = "no exact-scheme offer on an enabled network"
+_ERR_MALFORMED_402 = "malformed 402 payment-required response"
 _HTTP_PAYMENT_REQUIRED = 402
+# Reject offers whose settlement window is non-positive or implausibly long: a
+# signed EIP-3009 authorization stays settleable until validBefore, so an
+# uncapped seller timeout would leave a live payment credential outstanding for
+# years. One hour is generous for any legitimate facilitator.
+_MAX_TIMEOUT_SECONDS = 3600
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +59,7 @@ def parse_offers(body: dict[str, Any]) -> list[Offer]:
                 max_amount_atomic=int(a["maxAmountRequired"]),
                 asset=a["asset"],
                 pay_to=a["payTo"],
-                resource=a.get("resource", ""),
+                resource=a.get("resource") or "",
                 max_timeout=int(a.get("maxTimeoutSeconds", 60)),
                 domain_name=extra.get("name"),
                 domain_version=extra.get("version"),
@@ -74,6 +80,8 @@ def select_offer(offers: list[Offer], default_network: str) -> tuple[Offer, Netw
         # a non-positive amount would erode the daily-cap accounting and crash
         # signing; an asset other than the registry USDC we sign for is unpayable.
         if o.max_amount_atomic <= 0:
+            continue
+        if not 0 < o.max_timeout <= _MAX_TIMEOUT_SECONDS:
             continue
         net = get_network(o.network)
         if net is None or not net.enabled:
@@ -163,38 +171,51 @@ def pay(
     confirm: Callable[[str], bool] | None = None,
 ) -> httpx.Response:
     """GET `url`; if 402, select an offer, apply policy, sign, and retry with X-PAYMENT."""
+    # Own (and therefore close) the client only when we created it; a
+    # caller-supplied client's lifecycle belongs to the caller.
+    owns_client = http is None
     client = http or httpx.Client()
-    resp = client.get(url)
-    if resp.status_code != _HTTP_PAYMENT_REQUIRED:
-        return resp
+    try:
+        resp = client.get(url)
+        if resp.status_code != _HTTP_PAYMENT_REQUIRED:
+            return resp
 
-    offer, network = select_offer(parse_offers(resp.json()), config.default_network)
-    amount = from_atomic(offer.max_amount_atomic)
-    host = httpx.URL(url).host
-    today = datetime.now(UTC).date().isoformat()
-    decision = evaluate(amount, config.policy, audit.spent_today(today))
+        try:
+            offers = parse_offers(resp.json())
+        except (ValueError, KeyError, TypeError) as exc:
+            # ValueError covers json.JSONDecodeError + int() of a bad amount;
+            # KeyError a missing field; TypeError int(None) on a null field.
+            raise NoUsableOfferError(_ERR_MALFORMED_402) from exc
+        offer, network = select_offer(offers, config.default_network)
+        amount = from_atomic(offer.max_amount_atomic)
+        host = httpx.URL(url).host
+        today = datetime.now(UTC).date().isoformat()
+        decision = evaluate(amount, config.policy, audit.spent_today(today))
 
-    if decision is Decision.REFUSE or (decision is Decision.CONFIRM and confirm is None):
-        _audit(amount, host, network.id, offer.resource, "refuse", None)
-        msg = f"refused ${amount} to {host}"
-        raise PolicyRefusedError(msg)
-    if (
-        decision is Decision.CONFIRM
-        and confirm is not None
-        and not confirm(f"Pay ${amount} to {host} for {offer.resource}?")
-    ):
-        _audit(amount, host, network.id, offer.resource, "refuse", None)
-        msg = "declined at confirmation"
-        raise PolicyRefusedError(msg)
+        if decision is Decision.REFUSE or (decision is Decision.CONFIRM and confirm is None):
+            _audit(amount, host, network.id, offer.resource, "refuse", None)
+            msg = f"refused ${amount} to {host}"
+            raise PolicyRefusedError(msg)
+        if (
+            decision is Decision.CONFIRM
+            and confirm is not None
+            and not confirm(f"Pay ${amount} to {host} for {offer.resource}?")
+        ):
+            _audit(amount, host, network.id, offer.resource, "refuse", None)
+            msg = "declined at confirmation"
+            raise PolicyRefusedError(msg)
 
-    payload = build_payment(offer, network, wallet, now_ts)
-    paid = client.get(url, headers={"X-PAYMENT": encode_x_payment(payload)})
-    # Charge against the daily cap on send, NOT on a 2xx response: the signed
-    # EIP-3009 authorization is valid until validBefore and a seller can settle
-    # it later even after returning an error here. Gating on paid.is_success
-    # would be fail-open (a reject-then-settle seller could bypass the cap).
-    _audit(amount, host, network.id, offer.resource, "pay", None)
-    return paid
+        payload = build_payment(offer, network, wallet, now_ts)
+        paid = client.get(url, headers={"X-PAYMENT": encode_x_payment(payload)})
+        # Charge against the daily cap on send, NOT on a 2xx response: the signed
+        # EIP-3009 authorization is valid until validBefore and a seller can settle
+        # it later even after returning an error here. Gating on paid.is_success
+        # would be fail-open (a reject-then-settle seller could bypass the cap).
+        _audit(amount, host, network.id, offer.resource, "pay", None)
+        return paid
+    finally:
+        if owns_client:
+            client.close()
 
 
 def _audit(

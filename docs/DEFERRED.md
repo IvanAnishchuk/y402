@@ -32,6 +32,29 @@ Revisit before a 1.0 / mainnet-enable milestone.
 | DEF-14 | `chain.py` / spec | `transfer_usdc` returns right after `send_raw_transaction`; the send is audited before any receipt, so a later-reverting tx is still logged `"pay"`. Spec's send flow said "await receipt". | Low | Accept for v1 (hash is real); revisit with receipt-await if needed. |
 | DEF-3-domain | `x402_client.py` `build_payment` | EIP-712 domain `name`/`version` fell back to seller-supplied `offer.domain_name/version`. | Minor | ✅ **FIXED** — domain `name`/`version` now pinned to the registry (`select_offer` guarantees the asset matches). |
 
+## Findings from `/code-review high`
+
+Fixed in this pass (with tests): ✅ httpx.Client now closed when pay() owns it;
+✅ select_offer rejects implausible `maxTimeoutSeconds` (`0 < t <= 3600`) so a
+hostile seller can't mint a years-long authorization; ✅ malformed 402 bodies
+raise a clean `NoUsableOfferError` instead of a raw traceback (and null
+`resource` → `""`); ✅ `send` now defaults to `config.default_network` like
+`pay` (also removes the `enabled_networks()[0]` IndexError path).
+
+Deferred:
+
+| ID | Module | Finding | Severity | Decision |
+|----|--------|---------|----------|----------|
+| DEF-15 | `config.py` / `chain.py` | `Config.rpc_overrides` is declared, persisted, and settable but never applied — `ChainClient` always uses `network.rpc_url`. A false affordance. | Low | **Decision needed:** wire it (honor the override in `ChainClient`, have CLI pass it) or remove the field. |
+| DEF-16 | `x402_client.py` / `transfer.py` | Daily-cap check is not atomic: two concurrent CLI invocations both read the same `spent_today` snapshot and can each pass the cap (TOCTOU). Inherent to the file-based ledger. | Low (needs concurrent invocations) | Accept for v1 (CLI is normally sequential); revisit with a lock/lease if parallel automation is expected. |
+| DEF-17 | `audit.py` `spent_today` | Re-reads + parses the whole JSONL log on every pay() (O(N) on the hot path). | Low (log is small for micropayments) | Accept for v1; stream/aggregate or roll the log if it grows large. |
+| DEF-18 | `x402_client.py` `pay` | Only `GET` is supported for the probe + paid retry; x402-gated `POST`/other-method resources can't be paid without threading a method param through. | Low (v1 scope) | Accept for v1. |
+| DEF-19 | `audit.py` / `x402_client.py` / `transfer.py` | `decision` is stored as raw string literals (`"pay"`/`"refuse"`) rather than `Decision` enum values; a rename would silently desync `spent_today`. Plus minor dup (network-resolution block in `balance`/`send`). | Trivial | Cosmetic cleanup; defer. |
+
+`send` intentionally bypasses `policy.evaluate` (caps are for *automated* x402
+payments; a manual `send` is an explicit, confirmed user action) — by design,
+not a defect. `transfer_usdc` not awaiting a receipt before auditing is DEF-14.
+
 ## Plan corrections applied during implementation
 
 - **Canonical test vector (Tasks 8, 10):** the plan paired `KEY = 0x59c6995e…78690d` with `ADDR = 0x7E5F4552…395Bdf`, but those don't correspond. Verified: `0x59c6995e…` → `0x70997970C51812dc3A010C7d01b50e0d17dc79C8` (Hardhat acct #1); `0x7E5F4552…` is the address of key `0x…0001`. Tests use the corrected pair `KEY=0x59c6995e…` / `ADDR=0x70997970C51812dc3A010C7d01b50e0d17dc79C8`. Apply the same correction anywhere the plan reuses this pair.
