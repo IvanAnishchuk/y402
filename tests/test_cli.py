@@ -2,32 +2,39 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from typer.testing import CliRunner
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 from y402.cli import app
 
 runner = CliRunner()
 
 
-def test_version_flag() -> None:
+def test_version() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert "y402" in result.stdout
 
 
-def test_hello_default() -> None:
-    result = runner.invoke(app, ["hello"])
+def test_init_creates_key_and_prints_address(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("Y402_PASSPHRASE", "pw")
+    monkeypatch.setattr("y402.keystore._keyring_available", lambda: False)
+    result = runner.invoke(app, ["init"])
     assert result.exit_code == 0
-    assert "Hello" in result.output
-    assert "world" in result.output
+    assert "0x" in result.stdout
 
 
-def test_hello_with_name() -> None:
-    result = runner.invoke(app, ["hello", "Alice"])
+def test_config_get_shows_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    result = runner.invoke(app, ["config", "get"])
     assert result.exit_code == 0
-    assert "Alice" in result.output
-
-
-def test_no_args_shows_help() -> None:
-    result = runner.invoke(app, [])
-    assert "Usage" in result.output or "Self-custodial CLI USDC wallet that speaks x402" in result.output
+    assert "eip155:84532" in result.stdout
