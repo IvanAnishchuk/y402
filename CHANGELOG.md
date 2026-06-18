@@ -10,3 +10,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Initial project scaffold.
+- `Wallet` — eth-account-backed trust root with EIP-712 typed-data signing and raw transaction signing (`wallet.py`).
