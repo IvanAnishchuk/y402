@@ -1,0 +1,18 @@
+# Gitleaks configuration.
+#
+# Extends the upstream default ruleset (all built-in secret rules stay on).
+# Add ONLY path-scoped allowlist entries for fabricated / test-vector
+# secrets that live in this repo -- never broad regex allowlists, which
+# would silently disable real detections everywhere.
+#
+# A single [allowlist] table is used here; gitleaks also supports multiple
+# [[allowlists]] blocks if you need to scope several exceptions separately.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Project-scoped allowlist (empty by default)"
+paths = [
+  # Example: a fabricated key that only ever appears in a fixture file.
+  # '''tests/fixtures/example_secret\.txt''',
+]

@@ -1,0 +1,16 @@
+# zizmor configuration — https://docs.zizmor.sh/configuration/
+# Intentional, reviewed exceptions. Everything else must pass.
+rules:
+  dangerous-triggers:
+    ignore:
+      # coverage-comment uses `workflow_run` by design and is gated to
+      # same-repository pull-request runs (see its `if:`), so the privileged
+      # write context is not reachable from forks.
+      - coverage-comment.yml
+      # test-report likewise uses `workflow_run` and is read-only on the PR.
+      - test-report.yml
+  superfluous-actions:
+    ignore:
+      # action-gh-release is used deliberately (uploads assets, draft, release
+      # notes, prerelease flag); a hand-rolled `gh release` step is more brittle.
+      - release.yml

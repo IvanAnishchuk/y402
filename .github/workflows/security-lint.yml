@@ -1,0 +1,113 @@
+name: Security lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: security-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REPORTS_DIR: .reports
+
+jobs:
+  security-lint:
+    name: Security lint (S rules)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen --dev
+
+      - name: Prepare reports directory
+        run: mkdir -p "${REPORTS_DIR}/security-lint"
+
+      - name: Ruff security-only scan (SARIF)
+        run: |
+          uv run ruff check \
+            --select S,BLE,TRY \
+            --output-format=sarif \
+            --output-file="${REPORTS_DIR}/security-lint/ruff-security.sarif" \
+            src/ \
+            || true
+
+      - name: Ruff security-only scan (JSON)
+        run: |
+          uv run ruff check \
+            --select S,BLE,TRY \
+            --output-format=json \
+            --output-file="${REPORTS_DIR}/security-lint/ruff-security.json" \
+            src/ \
+            || true
+
+      - name: Ruff security-only scan (text log)
+        run: |
+          uv run ruff check \
+            --select S,BLE,TRY \
+            --output-format=full \
+            src/ 2>&1 | tee "${REPORTS_DIR}/security-lint/ruff-security.log" || true
+
+      - name: Write security summary
+        if: always()
+        run: |
+          {
+            echo "## Security lint report"
+            echo ""
+            if [ ! -f "${REPORTS_DIR}/security-lint/ruff-security.json" ]; then
+              echo "**ruff S/BLE/TRY**: scanner did not produce output -- check logs"
+            elif [ -s "${REPORTS_DIR}/security-lint/ruff-security.json" ]; then
+              count=$(jq 'length' "${REPORTS_DIR}/security-lint/ruff-security.json")
+              if [ "$count" = "0" ]; then
+                echo "**ruff S/BLE/TRY**: clean"
+              else
+                by_code=$(jq -r 'sort_by(.code) | group_by(.code) | map("\(.[0].code): \(length)") | join(", ")' "${REPORTS_DIR}/security-lint/ruff-security.json")
+                echo "**ruff S/BLE/TRY**: **$count** finding(s)"
+                echo ""
+                echo "Breakdown: $by_code"
+              fi
+            else
+              echo "**ruff S/BLE/TRY**: clean"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload security SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: .reports/security-lint/ruff-security.sarif
+          category: ruff-security
+
+      - name: Upload security lint logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-lint-logs
+          path: .reports/security-lint/
+          retention-days: 30
+
+      - name: Fail if scanner did not produce output
+        run: |
+          if [ ! -f "${REPORTS_DIR}/security-lint/ruff-security.sarif" ]; then
+            echo "Security scanner failed to produce SARIF -- ruff may have crashed."
+            exit 1
+          fi

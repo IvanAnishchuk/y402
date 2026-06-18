@@ -1,0 +1,3 @@
+# Code owners — the default required reviewer for every path in this repo.
+# Backs `require_code_owner_reviews` in .github/settings.yml.
+* @IvanAnishchuk
