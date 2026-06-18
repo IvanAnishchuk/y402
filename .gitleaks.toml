@@ -1,0 +1,20 @@
+# Gitleaks configuration.
+#
+# Extends the upstream default ruleset (all built-in secret rules stay on).
+# Add ONLY path-scoped allowlist entries for fabricated / test-vector
+# secrets that live in this repo -- never broad regex allowlists, which
+# would silently disable real detections everywhere.
+#
+# A single [allowlist] table is used here; gitleaks also supports multiple
+# [[allowlists]] blocks if you need to scope several exceptions separately.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Well-known public test vectors (not real secrets)."
+regexes = [
+  # Hardhat/Anvil account #1 private key -- a published test vector used across
+  # the wallet/keystore/x402 unit tests. Not a real secret. Allowlisted by exact
+  # value (never a broad pattern) so real detections stay on everywhere else.
+  '''0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d''',
+]

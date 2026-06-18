@@ -1,0 +1,88 @@
+name: Type check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: typecheck-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REPORTS_DIR: .reports
+
+jobs:
+  typecheck:
+    name: Type check (${{ matrix.checker }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Trimmed by the post-generation hook to the enabled checkers.
+        checker: [mypy, ty, basedpyright]
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen --dev
+
+      - name: Prepare reports directory
+        run: mkdir -p "${REPORTS_DIR}/typecheck"
+
+      - name: Run ${{ matrix.checker }}
+        env:
+          CHECKER: ${{ matrix.checker }}
+        run: |
+          set -o pipefail
+          case "${CHECKER}" in
+            mypy)         uv run mypy ;;
+            ty)           uv run ty check ;;
+            basedpyright) uv run basedpyright ;;
+            *)            echo "unknown checker: ${CHECKER}" >&2; exit 1 ;;
+          esac 2>&1 | tee "${REPORTS_DIR}/typecheck/${CHECKER}.log"
+
+      - name: Upload ${{ matrix.checker }} log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: typecheck-${{ matrix.checker }}-log
+          path: .reports/typecheck/
+          retention-days: 14
+
+  # Aggregate the (dynamically trimmed) checker matrix into one stable
+  # status context. Branch protection requires "Type check", which stays
+  # valid no matter how many matrix legs the post-gen hook leaves enabled.
+  typecheck-gate:
+    name: Type check
+    needs: [typecheck]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Require the type-check matrix to pass
+        env:
+          RESULT: ${{ needs.typecheck.result }}
+        run: |
+          [ "$RESULT" = success ] || { echo "type-check matrix: $RESULT"; exit 1; }
