@@ -45,7 +45,7 @@ Deferred:
 
 | ID | Module | Finding | Severity | Decision |
 |----|--------|---------|----------|----------|
-| DEF-15 | `config.py` / `chain.py` | `Config.rpc_overrides` is declared, persisted, and settable but never applied — `ChainClient` always uses `network.rpc_url`. A false affordance. | Low | **Decision needed:** wire it (honor the override in `ChainClient`, have CLI pass it) or remove the field. |
+| DEF-15 | `config.py` / `chain.py` | `Config.rpc_overrides` was declared/persisted/settable but never applied — `ChainClient` always used `network.rpc_url` (a false affordance). | Low | ✅ **DECIDED + FIXED (#12):** wired — `ChainClient(network, rpc_url=...)`; `balance`/`send` pass `config.rpc_overrides.get(net.id)`, falling back to the registry endpoint. |
 | DEF-16 | `x402_client.py` / `transfer.py` | Daily-cap check is not atomic: two concurrent CLI invocations both read the same `spent_today` snapshot and can each pass the cap (TOCTOU). Inherent to the file-based ledger. | Low (needs concurrent invocations) | Accept for v1 (CLI is normally sequential); revisit with a lock/lease if parallel automation is expected. |
 | DEF-17 | `audit.py` `spent_today` | Re-reads + parses the whole JSONL log on every pay() (O(N) on the hot path). | Low (log is small for micropayments) | Accept for v1; stream/aggregate or roll the log if it grows large. |
 | DEF-18 | `x402_client.py` `pay` | Only `GET` is supported for the probe + paid retry; x402-gated `POST`/other-method resources can't be paid without threading a method param through. | Low (v1 scope) | Accept for v1. |

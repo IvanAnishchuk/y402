@@ -37,9 +37,11 @@ _ERC20_TRANSFER_ABI = [
 
 
 class ChainClient:
-    def __init__(self, network: Network, w3: Any | None = None) -> None:
+    def __init__(self, network: Network, w3: Any | None = None, rpc_url: str | None = None) -> None:
         self.network = network
-        self.w3: Any = w3 or Web3(Web3.HTTPProvider(network.rpc_url))
+        # rpc_url lets a Config.rpc_overrides entry point at a private/custom node;
+        # falls back to the registry's default endpoint when unset.
+        self.w3: Any = w3 or Web3(Web3.HTTPProvider(rpc_url or network.rpc_url))
 
     def eth_balance(self, address: str) -> Decimal:
         wei = self.w3.eth.get_balance(Web3.to_checksum_address(address))

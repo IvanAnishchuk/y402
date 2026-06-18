@@ -29,3 +29,17 @@ def test_usdc_balance_converts_from_atomic() -> None:
     contract.functions.balanceOf.return_value.call.return_value = 1_500_000
     w3.eth.contract.return_value = contract
     assert cc.usdc_balance(ADDR) == Decimal("1.5")
+
+
+def test_rpc_override_is_used() -> None:
+    net = get_network("eip155:84532")
+    assert net is not None
+    cc = ChainClient(net, rpc_url="https://my.private.node/rpc")
+    assert cc.w3.provider.endpoint_uri == "https://my.private.node/rpc"
+
+
+def test_defaults_to_registry_rpc_when_no_override() -> None:
+    net = get_network("eip155:84532")
+    assert net is not None
+    cc = ChainClient(net)
+    assert cc.w3.provider.endpoint_uri == net.rpc_url

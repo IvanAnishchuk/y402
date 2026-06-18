@@ -87,6 +87,7 @@ def balance(
     ] = None,
 ) -> None:
     """Show USDC and ETH balances across enabled networks."""
+    cfg = load_config()
     wallet = Wallet.load()
     if network is not None:
         net = get_network(network)
@@ -97,7 +98,7 @@ def balance(
     else:
         nets = enabled_networks()
     for net in nets:
-        cc = ChainClient(net)
+        cc = ChainClient(net, rpc_url=cfg.rpc_overrides.get(net.id))
         console.print(
             f"{net.id}: {cc.usdc_balance(wallet.address)} USDC,"
             f" {cc.eth_balance(wallet.address)} ETH"
@@ -154,7 +155,8 @@ def send(
     """Send USDC to an address."""
     # Default to the configured network (consistent with `pay`), not whichever
     # registry entry happens to be first-enabled.
-    key = network or load_config().default_network
+    cfg = load_config()
+    key = network or cfg.default_network
     net = get_network(key)
     if net is None:
         console.print(f"[red]Unknown network: {key}[/red]")
@@ -170,7 +172,12 @@ def send(
         raise typer.Exit(1)
     if not yes and not typer.confirm(f"Send {amount_usd} USDC to {to} on {net.id}?"):
         raise typer.Abort()
-    tx = send_usdc(ChainClient(net), Wallet.load(), to=to, amount=amount_usd)
+    tx = send_usdc(
+        ChainClient(net, rpc_url=cfg.rpc_overrides.get(net.id)),
+        Wallet.load(),
+        to=to,
+        amount=amount_usd,
+    )
     console.print(f"sent: {tx}")
 
 
