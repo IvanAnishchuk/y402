@@ -11,8 +11,10 @@
 useDefault = true
 
 [allowlist]
-description = "Project-scoped allowlist (empty by default)"
-paths = [
-  # Example: a fabricated key that only ever appears in a fixture file.
-  # '''tests/fixtures/example_secret\.txt''',
+description = "Well-known public test vectors (not real secrets)."
+regexes = [
+  # Hardhat/Anvil account #1 private key -- a published test vector used across
+  # the wallet/keystore/x402 unit tests. Not a real secret. Allowlisted by exact
+  # value (never a broad pattern) so real detections stay on everywhere else.
+  '''0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d''',
 ]
