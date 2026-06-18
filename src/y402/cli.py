@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import time
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Annotated
 
 import qrcode
 import typer
 from rich.console import Console
+from web3 import Web3
 
 from y402 import __version__, keystore
 from y402.audit import read_all
@@ -125,6 +126,15 @@ def pay(
     console.print(resp.text)
 
 
+def _usd(value: str) -> Decimal:
+    """Parse a USD amount, exiting cleanly (not with a traceback) on bad input."""
+    try:
+        return Decimal(value)
+    except InvalidOperation:
+        console.print(f"[red]Invalid amount: {value}[/red]")
+        raise typer.Exit(1) from None
+
+
 @app.command()
 def send(
     to: Annotated[str, typer.Argument(help="Recipient address.")],
@@ -149,9 +159,18 @@ def send(
     if net is None:
         console.print(f"[red]Unknown network: {key}[/red]")
         raise typer.Exit(1)
-    if not yes and not typer.confirm(f"Send {amount} USDC to {to} on {net.id}?"):
+    # Validate recipient + amount up front so a typo is a clean error, not a
+    # mid-send traceback (and never after we've already prompted/loaded the key).
+    if not Web3.is_address(to):
+        console.print(f"[red]Invalid recipient address: {to}[/red]")
+        raise typer.Exit(1)
+    amount_usd = _usd(amount)
+    if amount_usd <= 0:
+        console.print(f"[red]Amount must be positive: {amount}[/red]")
+        raise typer.Exit(1)
+    if not yes and not typer.confirm(f"Send {amount_usd} USDC to {to} on {net.id}?"):
         raise typer.Abort()
-    tx = send_usdc(ChainClient(net), Wallet.load(), to=to, amount=Decimal(amount))
+    tx = send_usdc(ChainClient(net), Wallet.load(), to=to, amount=amount_usd)
     console.print(f"sent: {tx}")
 
 
@@ -176,7 +195,7 @@ def config_set(
     elif key == "unattended":
         cfg.policy.unattended = value.lower() in ("1", "true", "yes", "on")
     elif key == "per_payment_cap":
-        cfg.policy.per_payment_cap = Decimal(value)
+        cfg.policy.per_payment_cap = _usd(value)
     else:
         console.print(f"[red]Unknown config key: {key}[/red]")
         raise typer.Exit(1)

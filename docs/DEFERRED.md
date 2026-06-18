@@ -19,7 +19,7 @@ Revisit before a 1.0 / mainnet-enable milestone.
 
 | DEF-8 | `transfer.py` / `audit.py` | A manual `send` records `decision="pay"`, so `spent_today()` counts it and it tightens the *automated* x402 daily cap (manual sends aren't themselves cap-gated, but they consume the shared daily budget). This is a coherent "total daily spend" model but may be surprising; an alternative is to scope the daily cap to `kind=="x402"` only. | Low (design) | Surface to maintainer: confirm whether the daily cap is "total wallet spend/day" (current) or "automated-agent budget/day". |
 
-| DEF-9 | `cli.py` | `Decimal(amount)` in `send`/`config set` and `enabled_networks()[0]` in `send` are unguarded: a non-numeric amount raises `decimal.InvalidOperation` as a raw traceback, and an all-disabled registry would `IndexError`. Both fail safely (no transfer happens), but the UX is an ugly traceback. | Low (UX, fail-safe) | v1.1 polish: wrap in try/except → clean `typer.Exit(1)` messages. |
+| DEF-9 | `cli.py` | `Decimal(amount)` in `send`/`config set` and `enabled_networks()[0]` in `send` were unguarded (raw `InvalidOperation`/`IndexError` tracebacks). | Low (UX, fail-safe) | ✅ **FIXED** — `_usd()` parses with a clean `typer.Exit(1)`; `send` validates recipient (`Web3.is_address`) + positive amount; `send` uses `config.default_network` (no IndexError). (#9) |
 
 ## Findings from the final whole-implementation review
 

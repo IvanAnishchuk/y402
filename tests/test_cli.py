@@ -45,3 +45,27 @@ def test_send_unknown_network_errors(tmp_path: Path, monkeypatch: pytest.MonkeyP
     result = runner.invoke(app, ["send", "0xabc", "0.1", "--network", "bogus", "--yes"])
     assert result.exit_code == 1
     assert "Unknown network" in result.stdout
+
+
+_VALID_ADDR = "0x0000000000000000000000000000000000000abc"
+
+
+def test_send_invalid_amount_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    result = runner.invoke(app, ["send", _VALID_ADDR, "abc", "--yes"])
+    assert result.exit_code == 1
+    assert "Invalid amount" in result.stdout
+
+
+def test_send_invalid_address_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    result = runner.invoke(app, ["send", "not-an-address", "0.10", "--yes"])
+    assert result.exit_code == 1
+    assert "Invalid recipient address" in result.stdout
+
+
+def test_config_set_invalid_cap_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    result = runner.invoke(app, ["config", "set", "per_payment_cap", "abc"])
+    assert result.exit_code == 1
+    assert "Invalid amount" in result.stdout
