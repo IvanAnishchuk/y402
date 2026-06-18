@@ -56,7 +56,14 @@ def read_all() -> list[AuditRecord]:
 
 
 def spent_today(today: str) -> Decimal:
-    """Sum USD of records with decision=="pay" whose ts date == today (YYYY-MM-DD)."""
+    """Sum USD of *all* decision=="pay" records whose ts date == today (YYYY-MM-DD).
+
+    This counts both gasless x402 pays AND self-settled `send` transfers, so the
+    daily cap is a *total daily wallet-spend* ceiling, not an agent-only budget:
+    a manual `send` consumes the same daily budget the automated x402 path
+    checks (DEF-8). This is the conservative v1 choice; scoping the cap to
+    ``kind == "x402"`` only would make it an agent-allowance instead.
+    """
     total = Decimal("0")
     for r in read_all():
         if r.decision == "pay" and r.ts.startswith(today):

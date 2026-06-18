@@ -48,3 +48,7 @@ offer → EIP-3009 sign → `X-PAYMENT`), `transfer` (self-settled send). `cli` 
 The gasless x402 pay path signs locally and uses **no RPC**; `balance`/`send` use web3.py.
 Money is always `decimal.Decimal` — never `float`. See `docs/superpowers/specs/` for the
 design and `docs/DEFERRED.md` for accepted-as-is findings.
+
+The **daily cap is a total daily wallet-spend ceiling**: `audit.spent_today()` sums all
+`decision == "pay"` records, so a manual `send` consumes the same daily budget the
+automated x402 path checks (it is not an agent-only allowance). See DEF-8.
