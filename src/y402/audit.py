@@ -1,6 +1,7 @@
 """Append-only JSONL audit log of payments and transfers."""
 
 import json
+import logging
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -9,6 +10,8 @@ from y402.config import config_dir
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -39,9 +42,16 @@ def read_all() -> list[AuditRecord]:
     if not path.exists():
         return []
     out: list[AuditRecord] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            out.append(AuditRecord(**json.loads(line)))
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            out.append(AuditRecord(**json.loads(stripped)))
+        except (ValueError, TypeError) as exc:
+            # A torn/corrupt line must not brick spent_today (the cap check) or
+            # `y402 log`; skip it loudly rather than aborting the whole read.
+            logger.warning("skipping unparseable audit line %d: %s", lineno, exc)
     return out
 
 

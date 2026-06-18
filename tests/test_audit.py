@@ -39,3 +39,16 @@ def test_spent_today_sums_only_paid_today(tmp_path: Path, monkeypatch: pytest.Mo
     append(_rec("0.20", decision="refuse", ts="2026-06-18T11:30:00+00:00"))
     append(_rec("9.00", decision="pay", ts="2026-06-17T11:00:00+00:00"))
     assert spent_today(today="2026-06-18") == Decimal("0.08")
+
+
+def test_read_all_skips_corrupt_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    append(_rec("0.05", ts="2026-06-18T09:00:00+00:00"))
+    # Simulate a torn/corrupt JSONL line wedged between two good records.
+    log = tmp_path / "y402" / "audit.jsonl"
+    with log.open("a", encoding="utf-8") as fh:
+        fh.write("{not valid json\n")
+    append(_rec("0.03", ts="2026-06-18T11:00:00+00:00"))
+    records = read_all()  # must not raise
+    assert len(records) == 2
+    assert spent_today(today="2026-06-18") == Decimal("0.08")
